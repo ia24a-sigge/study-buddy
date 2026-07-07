@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   badges,
   buddies,
+  buddyReviews,
   chats,
   currentUser,
   goals,
@@ -26,6 +27,7 @@ const navGroups = [
     items: [
       { id: 'chat', label: 'Messages', icon: 'MS' },
       { id: 'profile', label: 'Profile', icon: 'PR' },
+      { id: 'ratings', label: 'Ratings', icon: 'RT' },
       { id: 'settings', label: 'Settings', icon: 'ST' },
     ],
   },
@@ -80,6 +82,9 @@ function App() {
   const [chatsState, setChatsState] = useState(chats)
   const [activeChatId, setActiveChatId] = useState('c1')
   const [globalSearch, setGlobalSearch] = useState('')
+  const [buddiesState, setBuddiesState] = useState(buddies)
+  const [buddyReviewsState, setBuddyReviewsState] = useState(buddyReviews)
+  const [ratingBuddy, setRatingBuddy] = useState(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -173,6 +178,34 @@ function App() {
     pushToast('Session created', `${newSession.topic} is now open for collaborators.`, 'success')
   }
 
+  function handleRateBuddy(buddyId, rating, text) {
+    const buddy = buddiesState.find((item) => item.id === buddyId)
+    const review = {
+      id: `br-${Date.now()}`,
+      buddyId,
+      author: profile.name,
+      rating,
+      text: text.trim(),
+      date: new Date().toISOString().slice(0, 10),
+    }
+    setBuddyReviewsState((current) => [review, ...current])
+    setBuddiesState((current) =>
+      current.map((item) =>
+        item.id === buddyId
+          ? {
+              ...item,
+              rating: Number(
+                ((item.rating * item.ratingCount + rating) / (item.ratingCount + 1)).toFixed(2),
+              ),
+              ratingCount: item.ratingCount + 1,
+            }
+          : item,
+      ),
+    )
+    setRatingBuddy(null)
+    pushToast('Rating submitted', `You rated ${buddy ? buddy.name : 'your buddy'} ${rating} stars.`, 'success')
+  }
+
   function handleSendMessage(chatId, text) {
     const trimmed = text.trim()
     if (!trimmed) return
@@ -202,15 +235,16 @@ function App() {
       case 'match':
         return (
           <MatchingPage
-            buddies={buddies}
+            buddies={buddiesState}
             onContact={handleContactBuddy}
             onViewProfile={setSelectedBuddy}
+            onRate={setRatingBuddy}
           />
         )
       case 'search':
         return (
           <SearchPage
-            buddies={buddies}
+            buddies={buddiesState}
             onContact={handleContactBuddy}
             onViewProfile={setSelectedBuddy}
           />
@@ -251,7 +285,13 @@ function App() {
           />
         )
       case 'ratings':
-        return <RatingsPage reviews={reviews} buddies={buddies} pushToast={pushToast} />
+        return (
+          <RatingsPage
+            buddies={buddiesState}
+            reviews={buddyReviewsState}
+            onRate={handleRateBuddy}
+          />
+        )
       case 'settings':
         return (
           <SettingsPage
@@ -265,7 +305,7 @@ function App() {
         return (
           <DashboardPage
             profile={profile}
-            buddies={buddies}
+            buddies={buddiesState}
             sessions={sessionsState}
             joinedSessionIds={joinedSessionIds}
             onNavigate={handleNavigate}
@@ -312,6 +352,10 @@ function App() {
           setNotificationOpen={setNotificationOpen}
           globalSearch={globalSearch}
           setGlobalSearch={setGlobalSearch}
+          buddies={buddiesState}
+          sessions={sessionsState}
+          onSelectBuddy={setSelectedBuddy}
+          onNavigate={handleNavigate}
           onMenu={() => setMobileMenuOpen(true)}
           onCreate={() => setSessionModalOpen(true)}
         />
@@ -339,11 +383,23 @@ function App() {
       {selectedBuddy && (
         <BuddyModal
           buddy={selectedBuddy}
+          reviews={buddyReviewsState.filter((review) => review.buddyId === selectedBuddy.id)}
           onClose={() => setSelectedBuddy(null)}
           onContact={() => {
             handleContactBuddy(selectedBuddy)
             setSelectedBuddy(null)
           }}
+          onRate={() => {
+            setRatingBuddy(selectedBuddy)
+            setSelectedBuddy(null)
+          }}
+        />
+      )}
+      {ratingBuddy && (
+        <RateBuddyModal
+          buddy={ratingBuddy}
+          onClose={() => setRatingBuddy(null)}
+          onSubmit={(rating, text) => handleRateBuddy(ratingBuddy.id, rating, text)}
         />
       )}
     </div>
@@ -588,9 +644,49 @@ function Topbar({
   setNotificationOpen,
   globalSearch,
   setGlobalSearch,
+  buddies,
+  sessions,
+  onSelectBuddy,
+  onNavigate,
   onMenu,
   onCreate,
 }) {
+  const [searchFocused, setSearchFocused] = useState(false)
+  const query = globalSearch.trim().toLowerCase()
+
+  const buddyResults = query
+    ? buddies
+        .filter(
+          (buddy) =>
+            buddy.name.toLowerCase().includes(query) ||
+            buddy.subjects.some((subject) => subject.toLowerCase().includes(query)),
+        )
+        .slice(0, 4)
+    : []
+  const sessionResults = query
+    ? sessions
+        .filter(
+          (session) =>
+            session.topic.toLowerCase().includes(query) ||
+            session.subject.toLowerCase().includes(query),
+        )
+        .slice(0, 4)
+    : []
+  const hasResults = buddyResults.length > 0 || sessionResults.length > 0
+  const showResults = searchFocused && query.length > 0
+
+  function selectBuddy(buddy) {
+    onSelectBuddy(buddy)
+    setGlobalSearch('')
+    setSearchFocused(false)
+  }
+
+  function selectSession() {
+    onNavigate('sessions')
+    setGlobalSearch('')
+    setSearchFocused(false)
+  }
+
   return (
     <header className="topbar">
       <button className="icon-button menu-button" type="button" onClick={onMenu}>
@@ -605,8 +701,64 @@ function Topbar({
         <input
           value={globalSearch}
           onChange={(event) => setGlobalSearch(event.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => window.setTimeout(() => setSearchFocused(false), 150)}
           placeholder="Search buddies, sessions, subjects..."
         />
+        {showResults && (
+          <div className="search-results glass-card">
+            {hasResults ? (
+              <>
+                {buddyResults.length > 0 && (
+                  <div className="search-group">
+                    <p className="search-group-label">Buddies</p>
+                    {buddyResults.map((buddy) => (
+                      <button
+                        key={buddy.id}
+                        type="button"
+                        className="search-result"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectBuddy(buddy)}
+                      >
+                        <Avatar
+                          name={buddy.name}
+                          gradient={buddy.avatarGradient}
+                          status={buddy.online ? 'online' : 'offline'}
+                        />
+                        <span>
+                          <strong>{buddy.name}</strong>
+                          <small>{buddy.subjects.slice(0, 2).join(', ')}</small>
+                        </span>
+                        <b>{buddy.match}%</b>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {sessionResults.length > 0 && (
+                  <div className="search-group">
+                    <p className="search-group-label">Sessions</p>
+                    {sessionResults.map((session) => (
+                      <button
+                        key={session.id}
+                        type="button"
+                        className="search-result"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={selectSession}
+                      >
+                        <span>
+                          <strong>{session.topic}</strong>
+                          <small>{session.subject} · {formatDate(session.date)}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="search-empty">No matches for "{globalSearch.trim()}"</p>
+            )}
+          </div>
+        )}
       </label>
       <div className="topbar-actions">
         <button className="secondary-button hide-mobile" type="button" onClick={onCreate}>
@@ -728,8 +880,31 @@ function DashboardPage({
   )
 }
 
-function MatchingPage({ buddies, onContact, onViewProfile }) {
-  const topMatch = Math.max(...buddies.map((buddy) => buddy.match))
+function MatchingPage({ buddies, onContact, onViewProfile, onRate }) {
+  const [search, setSearch] = useState('')
+  const [minRating, setMinRating] = useState('Any')
+  const [skill, setSkill] = useState('Any')
+  const [sort, setSort] = useState('Best match')
+
+  const topMatch = buddies.length ? Math.max(...buddies.map((buddy) => buddy.match)) : 0
+  const query = search.trim().toLowerCase()
+
+  const filteredBuddies = buddies
+    .filter((buddy) => {
+      const matchesQuery =
+        !query ||
+        buddy.name.toLowerCase().includes(query) ||
+        buddy.subjects.some((subject) => subject.toLowerCase().includes(query))
+      const matchesRating = minRating === 'Any' || buddy.rating >= Number(minRating)
+      const matchesSkill = skill === 'Any' || buddy.skillLevel === skill
+      return matchesQuery && matchesRating && matchesSkill
+    })
+    .sort((a, b) => {
+      if (sort === 'Highest rated') return b.rating - a.rating
+      if (sort === 'Most active') return b.activeScore - a.activeScore
+      if (sort === 'Name') return a.name.localeCompare(b.name)
+      return b.match - a.match
+    })
 
   return (
     <div className="page animate-in">
@@ -749,17 +924,59 @@ function MatchingPage({ buddies, onContact, onViewProfile }) {
         </div>
       </section>
 
-      <div className="buddy-grid">
-        {buddies.map((buddy, index) => (
-          <BuddyCard
-            key={buddy.id}
-            buddy={buddy}
-            style={{ animationDelay: `${index * 70}ms` }}
-            onContact={() => onContact(buddy)}
-            onViewProfile={() => onViewProfile(buddy)}
+      <section className="filter-bar glass-card">
+        <Field label="Search by name or subject">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Noah, Algorithms, Statistics..."
           />
-        ))}
+        </Field>
+        <SelectField label="Minimum rating" value={minRating} onChange={setMinRating}>
+          {['Any', '4', '4.5', '4.8'].map((option) => (
+            <option key={option} value={option}>
+              {option === 'Any' ? 'Any rating' : `${option}+ stars`}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Skill level" value={skill} onChange={setSkill}>
+          {['Any', 'Beginner', 'Intermediate', 'Advanced'].map((option) => (
+            <option key={option}>{option}</option>
+          ))}
+        </SelectField>
+        <SelectField label="Sort by" value={sort} onChange={setSort}>
+          {['Best match', 'Highest rated', 'Most active', 'Name'].map((option) => (
+            <option key={option}>{option}</option>
+          ))}
+        </SelectField>
+      </section>
+
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">Results</p>
+          <h2>{filteredBuddies.length} study partners</h2>
+        </div>
       </div>
+
+      {filteredBuddies.length > 0 ? (
+        <div className="buddy-grid">
+          {filteredBuddies.map((buddy, index) => (
+            <BuddyCard
+              key={buddy.id}
+              buddy={buddy}
+              style={{ animationDelay: `${index * 70}ms` }}
+              onContact={() => onContact(buddy)}
+              onViewProfile={() => onViewProfile(buddy)}
+              onRate={() => onRate(buddy)}
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No matching buddies"
+          text="Try clearing the search box or lowering the minimum rating to see more partners."
+        />
+      )}
     </div>
   )
 }
@@ -888,11 +1105,37 @@ function SearchPage({ buddies, onContact, onViewProfile }) {
 
 function SessionsPage({ sessions, joinedSessionIds, onJoin, onCreate }) {
   const [tab, setTab] = useState('Discover')
-  const visibleSessions = sessions.filter((session) => {
-    if (tab === 'My sessions') return joinedSessionIds.has(session.id)
-    if (tab === 'Upcoming') return new Date(`${session.date}T${session.time}`) >= new Date('2026-05-26T00:00:00')
-    return true
-  })
+  const [search, setSearch] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [minRating, setMinRating] = useState('Any')
+  const [mode, setMode] = useState('Any')
+  const [sort, setSort] = useState('Date')
+
+  const query = search.trim().toLowerCase()
+
+  const visibleSessions = sessions
+    .filter((session) => {
+      if (tab === 'My sessions' && !joinedSessionIds.has(session.id)) return false
+      if (
+        tab === 'Upcoming' &&
+        new Date(`${session.date}T${session.time}`) < new Date('2026-05-26T00:00:00')
+      ) {
+        return false
+      }
+      const matchesQuery =
+        !query ||
+        session.topic.toLowerCase().includes(query) ||
+        session.subject.toLowerCase().includes(query)
+      const matchesDate = !fromDate || session.date >= fromDate
+      const matchesRating = minRating === 'Any' || session.rating >= Number(minRating)
+      const matchesMode = mode === 'Any' || session.mode === mode
+      return matchesQuery && matchesDate && matchesRating && matchesMode
+    })
+    .sort((a, b) => {
+      if (sort === 'Rating') return b.rating - a.rating
+      if (sort === 'Subject') return a.subject.localeCompare(b.subject)
+      return new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`)
+    })
 
   return (
     <div className="page animate-in">
@@ -917,16 +1160,58 @@ function SessionsPage({ sessions, joinedSessionIds, onJoin, onCreate }) {
           </button>
         ))}
       </div>
-      <div className="session-grid">
-        {visibleSessions.map((session) => (
-          <SessionCard
-            key={session.id}
-            session={session}
-            joined={joinedSessionIds.has(session.id)}
-            onJoin={() => onJoin(session.id)}
+      <section className="filter-bar glass-card">
+        <Field label="Search by topic or subject">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Dynamic programming, Statistics..."
           />
-        ))}
+        </Field>
+        <Field label="From date">
+          <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+        </Field>
+        <SelectField label="Minimum rating" value={minRating} onChange={setMinRating}>
+          {['Any', '4', '4.5', '4.8'].map((option) => (
+            <option key={option} value={option}>
+              {option === 'Any' ? 'Any rating' : `${option}+ stars`}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Mode" value={mode} onChange={setMode}>
+          {['Any', 'Online', 'Physical'].map((option) => (
+            <option key={option}>{option}</option>
+          ))}
+        </SelectField>
+        <SelectField label="Sort by" value={sort} onChange={setSort}>
+          {['Date', 'Rating', 'Subject'].map((option) => (
+            <option key={option}>{option}</option>
+          ))}
+        </SelectField>
+      </section>
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">Results</p>
+          <h2>{visibleSessions.length} sessions</h2>
+        </div>
       </div>
+      {visibleSessions.length > 0 ? (
+        <div className="session-grid">
+          {visibleSessions.map((session) => (
+            <SessionCard
+              key={session.id}
+              session={session}
+              joined={joinedSessionIds.has(session.id)}
+              onJoin={() => onJoin(session.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No sessions found"
+          text="Adjust your search, date, or rating filters to find more study sessions."
+        />
+      )}
     </div>
   )
 }
@@ -1143,16 +1428,28 @@ function ProfilePage({ profile, badges, reviews, onEdit }) {
   )
 }
 
-function RatingsPage({ reviews, buddies, pushToast }) {
+function RatingsPage({ buddies, reviews, onRate }) {
+  const [selectedBuddyId, setSelectedBuddyId] = useState(buddies[0]?.id ?? '')
   const [rating, setRating] = useState(5)
   const [feedback, setFeedback] = useState('')
-  const [selectedBuddy, setSelectedBuddy] = useState(buddies[0].name)
+  const [search, setSearch] = useState('')
+
+  const buddyNames = Object.fromEntries(buddies.map((buddy) => [buddy.id, buddy.name]))
+  const selectedBuddy = buddies.find((buddy) => buddy.id === selectedBuddyId)
 
   function submitRating(event) {
     event.preventDefault()
-    pushToast('Rating submitted', `Your ${rating}-star feedback for ${selectedBuddy} was saved.`, 'success')
+    if (!selectedBuddyId) return
+    onRate(selectedBuddyId, rating, feedback)
     setFeedback('')
+    setRating(5)
   }
+
+  const query = search.trim().toLowerCase()
+  const visibleReviews = reviews.filter((review) => {
+    const name = buddyNames[review.buddyId] || ''
+    return !query || name.toLowerCase().includes(query) || review.text.toLowerCase().includes(query)
+  })
 
   return (
     <div className="page ratings-layout animate-in">
@@ -1160,11 +1457,18 @@ function RatingsPage({ reviews, buddies, pushToast }) {
         <p className="eyebrow">After session</p>
         <h2>Rate your study partner</h2>
         <form onSubmit={submitRating}>
-          <SelectField label="Study buddy" value={selectedBuddy} onChange={setSelectedBuddy}>
+          <SelectField label="Study buddy" value={selectedBuddyId} onChange={setSelectedBuddyId}>
             {buddies.map((buddy) => (
-              <option key={buddy.id}>{buddy.name}</option>
+              <option key={buddy.id} value={buddy.id}>
+                {buddy.name}
+              </option>
             ))}
           </SelectField>
+          {selectedBuddy && (
+            <p className="rating-current">
+              Current average <strong>{selectedBuddy.rating} ★</strong> from {selectedBuddy.ratingCount} ratings
+            </p>
+          )}
           <div className="star-picker" aria-label="Choose a 1 to 5 star rating">
             {[1, 2, 3, 4, 5].map((star) => (
               <button
@@ -1190,11 +1494,22 @@ function RatingsPage({ reviews, buddies, pushToast }) {
         </form>
       </section>
       <section className="panel-card">
-        <SectionHeader eyebrow="Profile reviews" title="What partners say" />
+        <SectionHeader eyebrow="Buddy reviews" title={`${reviews.length} ratings shared`} />
+        <Field label="Search reviews by buddy or keyword">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Noah, portfolio, exam..."
+          />
+        </Field>
         <div className="review-list">
-          {reviews.map((review) => (
-            <ReviewCard key={review.id} review={review} />
-          ))}
+          {visibleReviews.length > 0 ? (
+            visibleReviews.map((review) => (
+              <ReviewCard key={review.id} review={review} subtitle={buddyNames[review.buddyId]} />
+            ))
+          ) : (
+            <p className="dashboard-empty">No reviews match your search yet.</p>
+          )}
         </div>
       </section>
     </div>
@@ -1300,7 +1615,7 @@ function Avatar({ name, gradient, status, size = 'md' }) {
   )
 }
 
-function BuddyCard({ buddy, onContact, onViewProfile, style }) {
+function BuddyCard({ buddy, onContact, onViewProfile, onRate, style }) {
   return (
     <article className="buddy-card glass-card" style={style}>
       <div className="buddy-card-top">
@@ -1320,7 +1635,7 @@ function BuddyCard({ buddy, onContact, onViewProfile, style }) {
       <div className="buddy-meta">
         <span>{buddy.skillLevel}</span>
         <span>{buddy.languages.join(', ')}</span>
-        <span>{buddy.rating} avg rating</span>
+        <span>{buddy.rating} ★ ({buddy.ratingCount})</span>
       </div>
       <div className="card-actions">
         <button className="primary-button" type="button" onClick={onContact}>
@@ -1329,6 +1644,11 @@ function BuddyCard({ buddy, onContact, onViewProfile, style }) {
         <button className="secondary-button" type="button" onClick={onViewProfile}>
           View profile
         </button>
+        {onRate && (
+          <button className="secondary-button" type="button" onClick={onRate}>
+            Rate
+          </button>
+        )}
       </div>
     </article>
   )
@@ -1445,13 +1765,17 @@ function ProgressItem({ label, current, target }) {
   )
 }
 
-function ReviewCard({ review }) {
+function ReviewCard({ review, subtitle }) {
   return (
     <article className="review-card">
       <div>
         <strong>{review.author}</strong>
-        <span>{'&#9733;'.repeat(0)}{review.rating}/5</span>
+        <span className="review-stars">
+          {'★'.repeat(review.rating)}
+          {'☆'.repeat(5 - review.rating)}
+        </span>
       </div>
+      {subtitle && <small className="review-subtitle">For {subtitle}</small>}
       <p>{review.text}</p>
     </article>
   )
@@ -1641,7 +1965,7 @@ function CreateSessionModal({ profile, onClose, onCreate }) {
   )
 }
 
-function BuddyModal({ buddy, onClose, onContact }) {
+function BuddyModal({ buddy, reviews = [], onClose, onContact, onRate }) {
   return (
     <Modal title={buddy.name} onClose={onClose}>
       <div className="modal-profile-head">
@@ -1650,6 +1974,7 @@ function BuddyModal({ buddy, onClose, onContact }) {
           <p className="eyebrow">{buddy.school}</p>
           <strong>{buddy.match}% match</strong>
           <span>{buddy.bio}</span>
+          <span className="modal-rating">{buddy.rating} ★ · {buddy.ratingCount} ratings</span>
         </div>
       </div>
       <div className="profile-detail-grid">
@@ -1660,14 +1985,73 @@ function BuddyModal({ buddy, onClose, onContact }) {
         <InfoBlock label="Learning style" value={buddy.learningStyle} />
         <InfoBlock label="Languages" value={buddy.languages.join(', ')} />
       </div>
+      <div className="buddy-reviews">
+        <SectionHeader eyebrow="Reviews" title={`${reviews.length} ratings`} />
+        {reviews.length > 0 ? (
+          <div className="review-list">
+            {reviews.map((review) => (
+              <ReviewCard key={review.id} review={review} />
+            ))}
+          </div>
+        ) : (
+          <p className="dashboard-empty">No reviews yet. Be the first to rate {buddy.name.split(' ')[0]}.</p>
+        )}
+      </div>
       <div className="modal-actions">
-        <button className="secondary-button" type="button" onClick={onClose}>
-          Close
+        <button className="secondary-button" type="button" onClick={onRate}>
+          Rate buddy
         </button>
         <button className="primary-button" type="button" onClick={onContact}>
           Contact
         </button>
       </div>
+    </Modal>
+  )
+}
+
+function RateBuddyModal({ buddy, onClose, onSubmit }) {
+  const [rating, setRating] = useState(5)
+  const [feedback, setFeedback] = useState('')
+
+  function handleSubmit(event) {
+    event.preventDefault()
+    onSubmit(rating, feedback)
+  }
+
+  return (
+    <Modal title={`Rate ${buddy.name}`} onClose={onClose}>
+      <form className="rate-form" onSubmit={handleSubmit}>
+        <p className="rating-current">
+          Current average <strong>{buddy.rating} ★</strong> from {buddy.ratingCount} ratings
+        </p>
+        <div className="star-picker" aria-label="Choose a 1 to 5 star rating">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              className={classNames(star <= rating && 'is-filled')}
+              type="button"
+              onClick={() => setRating(star)}
+            >
+              &#9733;
+            </button>
+          ))}
+        </div>
+        <Field label="Optional feedback">
+          <textarea
+            value={feedback}
+            onChange={(event) => setFeedback(event.target.value)}
+            placeholder="What worked well? What should they know for next time?"
+          />
+        </Field>
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary-button" type="submit">
+            Submit rating
+          </button>
+        </div>
+      </form>
     </Modal>
   )
 }
