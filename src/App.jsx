@@ -11,16 +11,24 @@ import {
 } from './data/mockData'
 import './App.css'
 
-const navItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'DB' },
-  { id: 'match', label: 'Find buddies', icon: 'FB' },
-  { id: 'search', label: 'Search', icon: 'SE' },
-  { id: 'sessions', label: 'Sessions', icon: 'SS' },
-  { id: 'chat', label: 'Messages', icon: 'MS' },
-  { id: 'calendar', label: 'Calendar', icon: 'CA' },
-  { id: 'profile', label: 'Profile', icon: 'PR' },
-  { id: 'ratings', label: 'Ratings', icon: 'RT' },
-  { id: 'settings', label: 'Settings', icon: 'ST' },
+const navGroups = [
+  {
+    label: 'Discover',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', icon: 'DB' },
+      { id: 'match', label: 'Find buddies', icon: 'FB' },
+      { id: 'sessions', label: 'Sessions', icon: 'SS' },
+      { id: 'calendar', label: 'Calendar', icon: 'CA' },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      { id: 'chat', label: 'Messages', icon: 'MS' },
+      { id: 'profile', label: 'Profile', icon: 'PR' },
+      { id: 'settings', label: 'Settings', icon: 'ST' },
+    ],
+  },
 ]
 
 const pageTitles = {
@@ -287,7 +295,7 @@ function App() {
     <div className="app-shell">
       <Sidebar
         activePage={activePage}
-        navItems={navItems}
+        navGroups={navGroups}
         profile={profile}
         isOpen={mobileMenuOpen}
         onNavigate={handleNavigate}
@@ -528,7 +536,7 @@ function Field({ label, error, children }) {
   )
 }
 
-function Sidebar({ activePage, navItems, profile, isOpen, onNavigate, onClose }) {
+function Sidebar({ activePage, navGroups, profile, isOpen, onNavigate, onClose }) {
   return (
     <>
       <aside className={classNames('sidebar', isOpen && 'is-open')}>
@@ -540,16 +548,21 @@ function Sidebar({ activePage, navItems, profile, isOpen, onNavigate, onClose })
           </div>
         </div>
         <nav className="sidebar-nav" aria-label="Main navigation">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              className={classNames(activePage === item.id && 'is-active')}
-              type="button"
-              onClick={() => onNavigate(item.id)}
-            >
-              <span>{item.icon}</span>
-              {item.label}
-            </button>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <p className="nav-group-label">{group.label}</p>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={classNames(activePage === item.id && 'is-active')}
+                  type="button"
+                  onClick={() => onNavigate(item.id)}
+                >
+                  <span>{item.icon}</span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-user">
